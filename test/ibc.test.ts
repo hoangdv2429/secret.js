@@ -1210,7 +1210,7 @@ describe("ibc-hooks middleware", () => {
             channel_id: ibcChannelIdOnChain1,
             to_address: secretjs.address,
             amount: coinFromString("234uscrt"),
-            timeout_sec_from_now: "600", //10 minutes
+            timeout_sec_from_now: "600", // 10 minutes
           },
         },
       },
@@ -1231,6 +1231,77 @@ describe("ibc-hooks middleware", () => {
     const ibcResp = await tx.ibcResponses[0];
     expect(ibcResp.type).toBe("ack");
 
-    expect(ibcResp.tx.arrayLog).toBe([]); // TODO fix this
+    expect(
+      ibcResp.tx.arrayLog?.find(
+        (l) =>
+          l.msg === 0 &&
+          l.type === "wasm" &&
+          l.key === "contract_address" &&
+          l.value === wrap_deposit_contract_address,
+      ),
+    ).toBeTruthy();
+    expect(
+      ibcResp.tx.arrayLog?.find(
+        (l) =>
+          l.msg === 0 &&
+          l.type === "wasm" &&
+          l.key === "ibc_lifecycle_complete.ibc_ack.success" &&
+          l.value === "true",
+      ),
+    ).toBeTruthy();
+  }, 90_000);
+
+  test("receive timeout after sending MsgTransfer from a contract", async () => {
+    const { secretjs } = accounts[0];
+
+    let tx = await secretjs.tx.compute.executeContract(
+      {
+        sender: secretjs.address,
+        contract_address: wrap_deposit_contract_address,
+        sent_funds: coinsFromString("234uscrt"),
+        msg: {
+          ibc_transfer: {
+            channel_id: ibcChannelIdOnChain1,
+            to_address: secretjs.address,
+            amount: coinFromString("234uscrt"),
+            timeout_sec_from_now: "1", // 1 second
+          },
+        },
+      },
+      {
+        gasLimit: 100_000,
+        broadcastCheckIntervalMs: 100,
+        ibcTxsOptions: {
+          resolveResponsesCheckIntervalMs: 250,
+        },
+      },
+    );
+    if (tx.code !== TxResultCode.Success) {
+      console.error(tx.rawLog);
+    }
+    expect(tx.code).toBe(TxResultCode.Success);
+
+    expect(tx.ibcResponses.length).toBe(1);
+    const ibcResp = await tx.ibcResponses[0];
+    expect(ibcResp.type).toBe("timeout");
+
+    expect(
+      ibcResp.tx.arrayLog?.find(
+        (l) =>
+          l.msg === 0 &&
+          l.type === "wasm" &&
+          l.key === "contract_address" &&
+          l.value === wrap_deposit_contract_address,
+      ),
+    ).toBeTruthy();
+    expect(
+      ibcResp.tx.arrayLog?.find(
+        (l) =>
+          l.msg === 0 &&
+          l.type === "wasm" &&
+          l.key === "ibc_lifecycle_complete.ibc_timeout.channel" &&
+          l.value === ibcChannelIdOnChain1,
+      ),
+    ).toBeTruthy();
   }, 90_000);
 });
